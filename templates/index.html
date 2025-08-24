@@ -32,6 +32,8 @@
             background-color: #f9f9f9;
             max-height: 600px;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
         h1 {
             text-align: center;
@@ -42,6 +44,7 @@
             color: #3498db;
             border-bottom: 2px solid #3498db;
             padding-bottom: 10px;
+            margin-top: 0;
         }
         #video-container {
             position: relative;
@@ -93,6 +96,12 @@
         #clear-btn:hover {
             background-color: #c0392b;
         }
+        #export-btn {
+            background-color: #27ae60;
+        }
+        #export-btn:hover {
+            background-color: #219653;
+        }
         .result-item {
             background: white;
             padding: 15px;
@@ -133,6 +142,20 @@
             color: white;
             font-size: 18px;
         }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .results-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .results-content {
+            flex: 1;
+            overflow-y: auto;
+        }
         @media (max-width: 768px) {
             .container {
                 flex-direction: column;
@@ -140,6 +163,13 @@
             .camera-section, .results-section {
                 border-right: none;
                 border-bottom: 1px solid #eee;
+            }
+            .results-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .results-actions {
+                margin-top: 10px;
             }
         }
     </style>
@@ -169,20 +199,23 @@
             <div class="controls">
                 <button id="start-btn">开始扫描</button>
                 <button id="stop-btn" disabled>停止扫描</button>
-                <button id="clear-btn">清空记录</button>
             </div>
         </div>
 
         <div class="results-section">
-            <h2>扫描结果</h2>
-            <div id="results-container">
+            <div class="results-header">
+                <h2>扫描结果</h2>
+                <div class="results-actions">
+                    <button id="export-btn">导出CSV</button>
+                    <button id="clear-btn">清空记录</button>
+                </div>
+            </div>
+            <div id="results-container" class="results-content">
                 <div class="no-results">暂无扫描结果</div>
             </div>
         </div>
     </div>
-
-    <script>
-        // 全局变量
+<script>// 全局变量
         let video = document.getElementById('video');
         let canvas = document.getElementById('canvas');
         let ctx = canvas.getContext('2d');
@@ -194,6 +227,7 @@
         const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
         const clearBtn = document.getElementById('clear-btn');
+        const exportBtn = document.getElementById('export-btn');
         const resultsContainer = document.getElementById('results-container');
         const scanningOverlay = document.getElementById('scanning-overlay');
 
@@ -205,6 +239,7 @@
             startBtn.addEventListener('click', startScanning);
             stopBtn.addEventListener('click', stopScanning);
             clearBtn.addEventListener('click', clearHistory);
+            exportBtn.addEventListener('click', exportHistory);
         });
 
         // 加载摄像头列表
@@ -358,7 +393,7 @@
             resultsContainer.innerHTML = '';
 
             // 逆序显示，最新的在最上面
-            history.slice().reverse().forEach(item => {
+            history.forEach(item => {
                 const resultElement = document.createElement('div');
                 resultElement.className = 'result-item';
                 resultElement.innerHTML = `
@@ -372,21 +407,35 @@
 
         // 清空历史记录
         function clearHistory() {
-            if (confirm('确定要清空所有扫描记录吗？')) {
+            if (confirm('确定要清空所有扫描记录吗？此操作不可撤销。')) {
                 fetch('/clear', {
                     method: 'POST'
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'cleared') {
+                        alert('历史记录已清空');
                         loadHistory();
+                    } else {
+                        alert('清空记录失败: ' + (data.message || '未知错误'));
                     }
                 })
                 .catch(error => {
                     console.error('清空记录错误:', error);
+                    alert('清空记录失败: ' + error.message);
                 });
             }
         }
-    </script>
+
+        // 导出历史记录
+        function exportHistory() {
+            // 创建一个隐藏的链接并触发下载
+            const link = document.createElement('a');
+            link.href = '/export';
+            link.download = 'qr_scan_history.csv';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }</script>
 </body>
 </html>

@@ -1,0 +1,1 @@
+DATABASE = 'qr_scanner.db'
