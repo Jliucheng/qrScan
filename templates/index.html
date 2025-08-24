@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>二维码扫描器</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            display: flex;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .camera-section {
+            flex: 3;
+            padding: 20px;
+            border-right: 1px solid #eee;
+        }
+        .results-section {
+            flex: 2;
+            padding: 20px;
+            background-color: #f9f9f9;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #3498db;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            background-color: #000;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #canvas {
+            display: none;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .camera-select {
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .camera-select select {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #clear-btn {
+            background-color: #e74c3c;
+        }
+        #clear-btn:hover {
+            background-color: #c0392b;
+        }
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #3498db;
+        }
+        .result-type {
+            font-weight: bold;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        .result-data {
+            margin: 8px 0;
+            word-break: break-all;
+        }
+        .result-time {
+            font-size: 0.8em;
+            color: #95a5a6;
+        }
+        .no-results {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+            padding: 20px;
+        }
+        .scanning-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            font-size: 18px;
+        }
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            .camera-section, .results-section {
+                border-right: none;
+                border-bottom: 1px solid #eee;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>二维码扫描器</h1>
+
+    <div class="container">
+        <div class="camera-section">
+            <h2>摄像头预览</h2>
+
+            <div class="camera-select">
+                <label for="camera-select">选择摄像头: </label>
+                <select id="camera-select">
+                    <option value="-1">加载中...</option>
+                </select>
+            </div>
+
+            <div id="video-container">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                <div id="scanning-overlay" class="scanning-overlay" style="display: none;">
+                    扫描中...
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="start-btn">开始扫描</button>
+                <button id="stop-btn" disabled>停止扫描</button>
+                <button id="clear-btn">清空记录</button>
+            </div>
+        </div>
+
+        <div class="results-section">
+            <h2>扫描结果</h2>
+            <div id="results-container">
+                <div class="no-results">暂无扫描结果</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+        let scanning = false;
+        let scanInterval;
+
+        // 元素引用
+        const cameraSelect = document.getElementById('camera-select');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const resultsContainer = document.getElementById('results-container');
+        const scanningOverlay = document.getElementById('scanning-overlay');
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCameras();
+            loadHistory();
+
+            startBtn.addEventListener('click', startScanning);
+            stopBtn.addEventListener('click', stopScanning);
+            clearBtn.addEventListener('click', clearHistory);
+        });
+
+        // 加载摄像头列表
+        function loadCameras() {
+            fetch('/cameras')
+            .then(response => response.json())
+            .then(data => {
+                cameraSelect.innerHTML = '';
+
+                if (data.cameras && data.cameras.length > 0) {
+                    data.cameras.forEach(cameraIndex => {
+                        const option = document.createElement('option');
+                        option.value = cameraIndex;
+                        option.textContent = `摄像头 ${cameraIndex}`;
+                        cameraSelect.appendChild(option);
+                    });
+
+                    // 默认选择第一个摄像头
+                    cameraSelect.value = data.cameras[0];
+                } else {
+                    const option = document.createElement('option');
+                    option.value = "-1";
+                    option.textContent = "未检测到摄像头";
+                    cameraSelect.appendChild(option);
+                    startBtn.disabled = true;
+                }
+            })
+            .catch(error => {
+                console.error('获取摄像头列表错误:', error);
+                const option = document.createElement('option');
+                option.value = "-1";
+                option.textContent = "获取摄像头失败";
+                cameraSelect.appendChild(option);
+                startBtn.disabled = true;
+            });
+        }
+
+        // 开始扫描
+        async function startScanning() {
+            try {
+                // 获取选中的摄像头索引
+                const cameraIndex = parseInt(cameraSelect.value);
+                if (isNaN(cameraIndex) || cameraIndex < 0) {
+                    alert('请选择有效的摄像头');
+                    return;
+                }
+
+                // 请求摄像头权限
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        deviceId: cameraIndex ? { exact: cameraIndex } : undefined
+                    }
+                });
+
+                video.srcObject = stream;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                cameraSelect.disabled = true;
+                scanning = true;
+                scanningOverlay.style.display = 'flex';
+
+                // 设置canvas尺寸与视频相同
+                video.addEventListener('loadedmetadata', function() {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+
+                    // 开始定期扫描
+                    scanInterval = setInterval(captureAndScan, 1000); // 每秒扫描一次
+                });
+            } catch (error) {
+                console.error('无法访问摄像头:', error);
+                alert('无法访问摄像头，请确保已授予权限并且摄像头正常工作。');
+            }
+        }
+
+        // 停止扫描
+        function stopScanning() {
+            scanning = false;
+            clearInterval(scanInterval);
+
+            // 关闭摄像头
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            cameraSelect.disabled = false;
+            scanningOverlay.style.display = 'none';
+        }
+
+        // 捕获图像并发送到服务器进行扫描
+        function captureAndScan() {
+            if (!scanning) return;
+
+            // 绘制当前视频帧到canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 转换为base64
+            const imageData = canvas.toDataURL('image/jpeg');
+
+            // 显示扫描中状态
+            scanningOverlay.textContent = '扫描中...';
+
+            // 发送到服务器
+            fetch('/scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.results && data.results.length > 0) {
+                    // 更新扫描状态
+                    scanningOverlay.textContent = `找到 ${data.results.length} 个二维码`;
+
+                    // 获取更新后的历史记录
+                    loadHistory();
+                } else {
+                    scanningOverlay.textContent = '未发现二维码';
+                }
+            })
+            .catch(error => {
+                console.error('扫描错误:', error);
+                scanningOverlay.textContent = '扫描出错';
+            });
+        }
+
+        // 加载历史记录
+        function loadHistory() {
+            fetch('/history')
+            .then(response => response.json())
+            .then(data => {
+                updateResultsUI(data.history);
+            })
+            .catch(error => {
+                console.error('获取历史记录错误:', error);
+            });
+        }
+
+        // 更新结果UI
+        function updateResultsUI(history) {
+            if (history.length === 0) {
+                resultsContainer.innerHTML = '<div class="no-results">暂无扫描结果</div>';
+                return;
+            }
+
+            resultsContainer.innerHTML = '';
+
+            // 逆序显示，最新的在最上面
+            history.slice().reverse().forEach(item => {
+                const resultElement = document.createElement('div');
+                resultElement.className = 'result-item';
+                resultElement.innerHTML = `
+                    <div class="result-type">${item.type}</div>
+                    <div class="result-data">${item.data}</div>
+                    <div class="result-time">${item.time}</div>
+                `;
+                resultsContainer.appendChild(resultElement);
+            });
+        }
+
+        // 清空历史记录
+        function clearHistory() {
+            if (confirm('确定要清空所有扫描记录吗？')) {
+                fetch('/clear', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'cleared') {
+                        loadHistory();
+                    }
+                })
+                .catch(error => {
+                    console.error('清空记录错误:', error);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
